@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  host
+  tenant
+  viewer
+}
+
+enum RoomStatus {
+  vacant
+  occupied
+  reserved
+  maintenance
+}
+
+enum RoomType {
+  premium
+  standard
+}
+
+enum InvoiceStatus {
+  unpaid
+  paid
+  overdue
+}
+
+enum InquiryStatus {
+  new
+  contacted
+  accepted
+  rejected
+  cancelled
+}
+
+enum RepairStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(3)
+  username      String     @unique
+  passwordHash  String
+  role          UserRole   @default(viewer)
+  fullName      String
+  phone         String
+  isDepositPaid Boolean    @default(false)
+  tenantId      String?    @unique @db.Uuid
+  tenant        Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  properties    Property[]
+  favorites     Favorite[]
+  inquiries     Inquiry[]
+}
+
+model Property {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  ownerId   String   @db.Uuid
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  name      String
+  address   String
+  rooms     Room[]
+
+  @@index([ownerId])
+}
+
+model Room {
+  id                    String          @id @default(uuid()) @db.Uuid
+  createdAt             DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @db.Timestamptz(3)
+  propertyId            String          @db.Uuid
+  property              Property        @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  type                  RoomType        @default(standard)
+  code                  String
+  floor                 Int
+  area                  Decimal         @db.Decimal(10, 2)
+  price                 Decimal         @db.Decimal(18, 2)
+  deposit               Decimal         @db.Decimal(18, 2)
+  electricityRate       Decimal         @db.Decimal(18, 2)
+  waterRate             Decimal         @db.Decimal(18, 2)
+  status                RoomStatus      @default(vacant)
+  amenities             String[]        @default([])
+  description           String          @default("")
+  listed                Boolean         @default(false)
+  maxOccupants          Int             @default(1)
+  currentOccupantsCount Int             @default(0)
+  images                String[]        @default([])
+  contracts             Contract[]
+  invoices              Invoice[]
+  inquiries             Inquiry[]
+  repairRequests        RepairRequest[]
+  favorites             Favorite[]
+
+  @@unique([propertyId, code])
+  @@index([listed, status])
+}
+
+model Tenant {
+  id             String          @id @default(uuid()) @db.Uuid
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  fullName       String
+  phone          String
+  idNumber       String?
+  note           String          @default("")
+  user           User?
+  contracts      Contract[]
+  invoices       Invoice[]
+  repairRequests RepairRequest[]
+
+  @@index([phone])
+}
+
+model Contract {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  roomId      String    @db.Uuid
+  tenantId    String    @db.Uuid
+  room        Room      @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  monthlyRent Decimal   @db.Decimal(18, 2)
+  deposit     Decimal   @db.Decimal(18, 2)
+  active      Boolean   @default(true)
+  invoices    Invoice[]
+
+  @@unique([id, roomId, tenantId])
+  @@index([roomId, active])
+  @@index([tenantId, active])
+}
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+  contractId      String        @db.Uuid
+  roomId          String        @db.Uuid
+  tenantId        String        @db.Uuid
+  contract        Contract      @relation(fields: [contractId, roomId, tenantId], references: [id, roomId, tenantId], onDelete: Restrict)
+  room            Room          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  period          String        @db.VarChar(7)
+  rent            Decimal       @db.Decimal(18, 2)
+  electricityRate Decimal       @db.Decimal(18, 2)
+  waterRate       Decimal       @db.Decimal(18, 2)
+  electricityOld  Decimal       @db.Decimal(14, 3)
+  electricityNew  Decimal       @db.Decimal(14, 3)
+  waterOld        Decimal       @db.Decimal(14, 3)
+  waterNew        Decimal       @db.Decimal(14, 3)
+  other           Decimal       @default(0) @db.Decimal(18, 2)
+  otherNote       String        @default("")
+  status          InvoiceStatus @default(unpaid)
+  paidAt          DateTime?     @db.Timestamptz(3)
+
+  @@unique([roomId, period])
+  @@index([contractId, roomId, tenantId])
+  @@index([tenantId, status])
+  @@index([status, paidAt])
+}
+
+model Inquiry {
+  id        String        @id @default(uuid()) @db.Uuid
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+  roomId    String        @db.Uuid
+  room      Room          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  userId    String?       @db.Uuid
+  user      User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name      String
+  phone     String
+  message   String        @default("")
+  status    InquiryStatus @default(new)
+
+  @@index([roomId, status])
+  @@index([userId, status])
+}
+
+model RepairRequest {
+  id          String       @id @default(uuid()) @db.Uuid
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+  roomId      String       @db.Uuid
+  tenantId    String       @db.Uuid
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  description String
+  images      String[]     @default([])
+  status      RepairStatus @default(pending)
+
+  @@index([roomId, status])
+  @@index([tenantId, status])
+}
+
+model Favorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  userId    String   @db.Uuid
+  roomId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+  @@index([roomId])
+}
